@@ -1,8 +1,10 @@
-Non empty vector, ensure non empty by construction.
+`NonEmpty` vector implementation, ensure non-emptiness by construction.
 
-Inherits `Vec`'s methods through `Deref` trait, not implement `DerefMut`.
+Inherits `Vec`'s immutable methods through `Deref` trait, not implements `DerefMut`.
 
-Overridden some methods:
+The differences from `Vec`:
 * `len` returns `NonZeroUsize`, `is_empty` always returns `false`.
 * `first(_mut)`, `last(_mut)`, `split_first(_mut)`, `split_last(_mut)` don't return `Option`.
 * `pop` returns `None` if there is only one element in it.
+
+More usages please look at the embedded unit testing.
