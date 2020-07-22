@@ -106,6 +106,11 @@ impl<T> NonEmpty<T> {
             self.0.pop()
         }
     }
+
+    #[inline]
+    pub fn push(&mut self, v: T) {
+        self.0.push(v)
+    }
 }
 
 impl<T> From<(Vec<T>, T)> for NonEmpty<T> {
