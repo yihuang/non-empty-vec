@@ -127,9 +127,9 @@ impl<T> From<(T, Vec<T>)> for NonEmpty<T> {
     }
 }
 
-impl<T> Into<Vec<T>> for NonEmpty<T> {
-    fn into(self) -> Vec<T> {
-        self.0
+impl<T> From<NonEmpty<T>> for Vec<T> {
+    fn from(v: NonEmpty<T>) -> Self {
+        v.0
     }
 }
 
