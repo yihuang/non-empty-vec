@@ -235,4 +235,16 @@ mod tests {
             vec![2, 4, 6]
         );
     }
+
+    #[test]
+    fn serialize() {
+        use serde::{Serialize, Deserialize};
+        use serde_json;
+        
+        #[derive(Serialize, Deserialize)]
+        struct WithVec{
+            vec:NonEmpty<u32>,
+        }
+
+    }
 }

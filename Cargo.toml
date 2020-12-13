@@ -8,3 +8,7 @@ edition = "2018"
 repository = "https://github.com/yihuang/non-empty-vec"
 
 [dependencies]
+
+[dev-dependencies]
+serde = { verision = "*", features = ["derive"] }
+serde_json = "*"
