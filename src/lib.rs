@@ -3,6 +3,9 @@ use std::num::NonZeroUsize;
 use std::ops;
 use std::slice::SliceIndex;
 
+#[cfg(feature = "serde")]
+use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+
 /// Non empty vector, ensure non empty by construction.
 /// Inherits `Vec`'s methods through `Deref` trait, not implement `DerefMut`.
 /// Overridden these methods:
@@ -202,9 +205,26 @@ impl<T, I: SliceIndex<[T]>> ops::IndexMut<I> for NonEmpty<T> {
     }
 }
 
+#[cfg(feature = "serde")]
+impl<T: Serialize> Serialize for NonEmpty<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.as_slice().serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::try_from(<Vec<T>>::deserialize(deserializer)?)
+            .map_err(|_| D::Error::custom("empty vector"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "serde")]
     #[test]
     fn it_works() {
         // From
@@ -233,6 +253,18 @@ mod tests {
         assert_eq!(
             list.iter().map(|n| n * 2).collect::<Vec<_>>(),
             vec![2, 4, 6]
+        );
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serialize() {
+        use serde_json;
+
+        let vec: NonEmpty<u32> = (1, vec![]).into();
+        assert_eq!(
+            serde_json::from_str::<NonEmpty<u32>>(&serde_json::to_string(&vec).unwrap()).unwrap(),
+            vec
         );
     }
 }
