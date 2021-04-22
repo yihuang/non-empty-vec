@@ -26,6 +26,11 @@ impl<T> NonEmpty<T> {
     }
 
     #[inline]
+    pub fn single(val: T) -> Self {
+        Self(vec![val])
+    }
+
+    #[inline]
     pub fn as_slice(&self) -> &[T] {
         &self.0
     }
@@ -232,6 +237,11 @@ mod tests {
             list.iter().map(|n| n * 2).collect::<Vec<_>>(),
             vec![2, 4, 6]
         );
+
+        // Single
+        let single = NonEmpty::single(15_i32);
+        assert_eq!(single.len().get(), 1);
+        assert_eq!(single[0], 15);
     }
 
     #[cfg(feature = "serde")]
