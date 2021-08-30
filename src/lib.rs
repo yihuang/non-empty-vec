@@ -208,9 +208,10 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
 /// Proper use.
 /// ```
 /// # use non_empty_vec::*;
+/// # use std::convert::TryFrom;
 /// assert_eq!(
 ///     ne_vec![1, 2, 3],
-///     NonEmpty::new(vec![1, 2, 3_i32]).unwrap(),
+///     NonEmpty::try_from(vec![1, 2, 3_i32]).unwrap(),
 /// );
 /// ```
 /// Improper use.
