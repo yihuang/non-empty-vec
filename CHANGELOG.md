@@ -1,4 +1,4 @@
-## UNRELEASED
+## v0.2.0
 
 - [#6](https://github.com/yihuang/non-empty-vec/pull/6) Remove unsafe `AsMut` implementation.
 - [#3](https://github.com/yihuang/non-empty-vec/pull/3) Change `new` to construct singleton.
