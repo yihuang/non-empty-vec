@@ -158,35 +158,15 @@ impl<T> ops::Deref for NonEmpty<T> {
     }
 }
 
-/*
-impl<T> ops::DerefMut for NonEmpty<T> {
-    fn deref_mut(&mut self) -> &mut [T] {
-        self.0.deref_mut()
-    }
-}
-*/
-
 impl<T> AsRef<[T]> for NonEmpty<T> {
     fn as_ref(&self) -> &[T] {
         self
     }
 }
 
-impl<T> AsMut<[T]> for NonEmpty<T> {
-    fn as_mut(&mut self) -> &mut [T] {
-        self.0.as_mut()
-    }
-}
-
 impl<T> AsRef<Vec<T>> for NonEmpty<T> {
     fn as_ref(&self) -> &Vec<T> {
         &self.0
-    }
-}
-
-impl<T> AsMut<Vec<T>> for NonEmpty<T> {
-    fn as_mut(&mut self) -> &mut Vec<T> {
-        &mut self.0
     }
 }
 
@@ -222,8 +202,6 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[cfg(feature = "serde")]
     #[test]
     fn it_works() {
