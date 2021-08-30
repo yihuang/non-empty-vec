@@ -21,6 +21,13 @@ impl<T> NonEmpty<T> {
         Self(vec![v])
     }
 
+    /// Constructs a non-empty vec without checking its size.
+    /// This is marked `unsafe` as unsafe code elsewhere may rely on `NonEmpty`'s invariant.
+    #[inline]
+    pub unsafe fn new_unchecked(vec: Vec<T>) -> Self {
+        Self(vec)
+    }
+
     #[inline]
     pub fn as_slice(&self) -> &[T] {
         &self.0
@@ -194,6 +201,33 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
         Self::try_from(<Vec<T>>::deserialize(deserializer)?)
             .map_err(|_| D::Error::custom("empty vector"))
     }
+}
+
+/// Constructs a [`NonEmpty`] vector, similar to std's `vec` macro.
+/// # Examples
+/// Proper use.
+/// ```
+/// # use non_empty_vec::*;
+/// # use std::convert::TryFrom;
+/// assert_eq!(
+///     ne_vec![1, 2, 3],
+///     NonEmpty::try_from(vec![1, 2, 3_i32]).unwrap(),
+/// );
+/// ```
+/// Improper use.
+/// ```compile_fail
+/// # use non_empty_vec::*;
+/// // the following line should fail to compile.
+/// let _ = ne_vec![];
+/// ```
+#[macro_export]
+macro_rules! ne_vec {
+    () => {
+        ::std::compile_error!("`NonEmpty` vector must be non-empty")
+    };
+    ($($x:expr),+ $(,)?) => {
+        unsafe { $crate::NonEmpty::new_unchecked(vec![$($x),+]) }
+    };
 }
 
 #[cfg(test)]
