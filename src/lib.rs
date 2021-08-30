@@ -17,12 +17,8 @@ pub struct NonEmpty<T>(Vec<T>);
 
 impl<T> NonEmpty<T> {
     #[inline]
-    pub fn new(vec: Vec<T>) -> Option<NonEmpty<T>> {
-        if vec.is_empty() {
-            None
-        } else {
-            Some(NonEmpty(vec))
-        }
+    pub fn new(v: T) -> Self {
+        Self(vec![v])
     }
 
     #[inline]
@@ -232,6 +228,11 @@ mod tests {
             list.iter().map(|n| n * 2).collect::<Vec<_>>(),
             vec![2, 4, 6]
         );
+
+        // Single
+        let single = NonEmpty::new(15_i32);
+        assert_eq!(single.len().get(), 1);
+        assert_eq!(single[0], 15);
     }
 
     #[cfg(feature = "serde")]
