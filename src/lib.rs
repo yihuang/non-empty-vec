@@ -232,6 +232,8 @@ macro_rules! ne_vec {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[cfg(feature = "serde")]
     #[test]
     fn it_works() {
