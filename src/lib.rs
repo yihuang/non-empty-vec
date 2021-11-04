@@ -169,6 +169,12 @@ impl<T> AsRef<[T]> for NonEmpty<T> {
     }
 }
 
+impl<T> AsMut<[T]> for NonEmpty<T> {
+    fn as_mut(&mut self) -> &mut [T] {
+        self.0.as_mut()
+    }
+}
+
 impl<T> AsRef<Vec<T>> for NonEmpty<T> {
     fn as_ref(&self) -> &Vec<T> {
         &self.0
