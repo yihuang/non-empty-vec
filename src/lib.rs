@@ -22,7 +22,9 @@ impl<T> NonEmpty<T> {
     }
 
     /// Constructs a non-empty vec without checking its size.
-    /// This is marked `unsafe` as unsafe code elsewhere may rely on `NonEmpty`'s invariant.
+    ///
+    /// # Safety
+    /// `vec` should not be empty.
     #[inline]
     pub unsafe fn new_unchecked(vec: Vec<T>) -> Self {
         Self(vec)
