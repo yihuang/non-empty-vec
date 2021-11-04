@@ -12,7 +12,7 @@ use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 /// * `len` returns `NonZeroUsize` and `is_empty` always returns `false`.
 /// * `first(_mut)`, `last(_mut)`, `split_first(_mut)`, `split_last(_mut)` don't return `Option`.
 /// * `pop` returns `None` if there is only one element in it.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NonEmpty<T>(Vec<T>);
 
 impl<T> NonEmpty<T> {
@@ -232,7 +232,8 @@ macro_rules! ne_vec {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "serde")]
+    use super::*;
+
     #[test]
     fn it_works() {
         // From
