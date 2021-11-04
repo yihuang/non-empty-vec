@@ -1,7 +1,8 @@
 use std::convert::TryFrom;
 use std::num::NonZeroUsize;
 use std::ops;
-use std::slice::SliceIndex;
+use std::vec::IntoIter;
+use std::slice::{SliceIndex, Iter, IterMut};
 
 #[cfg(feature = "serde")]
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
@@ -119,6 +120,11 @@ impl<T> NonEmpty<T> {
     pub fn push(&mut self, v: T) {
         self.0.push(v)
     }
+
+    #[inline]
+    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+        self.0.iter_mut()
+    }
 }
 
 impl<T> From<(Vec<T>, T)> for NonEmpty<T> {
@@ -193,6 +199,31 @@ impl<T, I: SliceIndex<[T]>> ops::IndexMut<I> for NonEmpty<T> {
     #[inline]
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         ops::IndexMut::index_mut(self.as_mut_slice(), index)
+    }
+}
+
+impl<T> IntoIterator for NonEmpty<T> {
+    type Item = T;
+    type IntoIter = IntoIter<T>;
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+impl<'a, T> IntoIterator for &'a NonEmpty<T> {
+    type Item = &'a T;
+    type IntoIter = Iter<'a, T>;
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+impl<'a, T> IntoIterator for &'a mut NonEmpty<T> {
+    type Item = &'a mut T;
+    type IntoIter = IterMut<'a, T>;
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
     }
 }
 
@@ -276,6 +307,24 @@ mod tests {
         let single = NonEmpty::new(15_i32);
         assert_eq!(single.len().get(), 1);
         assert_eq!(single[0], 15);
+    }
+
+    #[test]
+    fn into_iter() {
+        let mut list = ne_vec![1, 2, 3];
+
+        for (a, b) in [1, 2, 3].iter().zip(&list) {
+            assert_eq!(a, b);
+        }
+
+        for a in &mut list {
+            *a += 1;
+        }
+        assert_eq!(list.as_slice(), &[2, 3, 4]);
+
+        for (a, b) in vec![2, 3, 4].into_iter().zip(list) {
+            assert_eq!(a, b);
+        }
     }
 
     #[cfg(feature = "serde")]
