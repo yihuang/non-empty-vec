@@ -1,3 +1,7 @@
+## v0.2.2
+
+- [#11](https://github.com/yihuang/non-empty-vec/pull/11) Add `truncate` method
+
 ## v0.2.1
 
 - [#8](https://github.com/yihuang/non-empty-vec/pull/8) Add `AsMut<[T]>`
