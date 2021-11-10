@@ -1,8 +1,8 @@
 use std::convert::TryFrom;
 use std::num::NonZeroUsize;
 use std::ops;
+use std::slice::{Iter, IterMut, SliceIndex};
 use std::vec::IntoIter;
-use std::slice::{SliceIndex, Iter, IterMut};
 
 #[cfg(feature = "serde")]
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
@@ -257,12 +257,20 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
 ///     ne_vec![1, 2, 3],
 ///     NonEmpty::try_from(vec![1, 2, 3_i32]).unwrap(),
 /// );
+///
+/// assert_eq!(
+///     ne_vec![1; 3],
+///     NonEmpty::try_from(vec![1, 1, 1]).unwrap(),
+/// );
 /// ```
 /// Improper use.
 /// ```compile_fail
 /// # use non_empty_vec::*;
 /// // the following line should fail to compile.
 /// let _ = ne_vec![];
+///
+/// // the following line should panic at runtime.
+/// let _ = ne_vec![1; 0];
 /// ```
 #[macro_export]
 macro_rules! ne_vec {
@@ -272,6 +280,12 @@ macro_rules! ne_vec {
     ($($x:expr),+ $(,)?) => {
         unsafe { $crate::NonEmpty::new_unchecked(vec![$($x),+]) }
     };
+    ($elem:expr; $n:expr) => {{
+        if $n == 0 {
+            ::std::panic!("`NonEmpty` vector must be non-empty");
+        }
+        unsafe { $crate::NonEmpty::new_unchecked(vec![$elem; $n]) }
+    }};
 }
 
 #[cfg(test)]
@@ -330,6 +344,18 @@ mod tests {
         for (a, b) in vec![2, 3, 4].into_iter().zip(list) {
             assert_eq!(a, b);
         }
+    }
+
+    #[test]
+    fn initialize_macro() {
+        assert_eq!(ne_vec![1; 3].as_slice(), &[1, 1, 1]);
+        assert_eq!(ne_vec!["string"; 5].as_slice(), &["string"; 5]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn initialize_macro_zero_size() {
+        let _ = ne_vec![1; 0];
     }
 
     #[cfg(feature = "serde")]
