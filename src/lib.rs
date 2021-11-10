@@ -122,6 +122,11 @@ impl<T> NonEmpty<T> {
     }
 
     #[inline]
+    pub fn truncate(&mut self, len: NonZeroUsize) {
+        self.0.truncate(len.get())
+    }
+
+    #[inline]
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         self.0.iter_mut()
     }
