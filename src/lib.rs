@@ -289,10 +289,12 @@ macro_rules! ne_vec {
         unsafe { $crate::NonEmpty::new_unchecked(vec![$($x),+]) }
     };
     ($elem:expr; 0) => {
-        ::std::compile_error!("`NonEmpty` vector must be non-empty")
+        // if 0 is passed to the macro we can generate a good compile error
+        ne_vec![]
     };
     ($elem:expr; $n:literal) => {{
-        // $n cannot be zero as this macro is only called if the rule above ($elem:expr; 0) does not match
+        // extra guard to reject compilation if $n ends up being 0 in some other way (e.g. ne_vec![1; 0usize])
+        const _ASSERT_NON_ZERO: [(); $n - 1] = [(); $n - 1];
         unsafe { $crate::NonEmpty::new_unchecked(vec![$elem; $n]) }
     }};
     ($elem:expr; $n:expr) => {{
