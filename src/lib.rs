@@ -248,6 +248,12 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
 }
 
 /// Constructs a [`NonEmpty`] vector, similar to std's `vec` macro.
+///
+/// This macro will generally try to check the validity of the length at compile time if it can.
+///
+/// If the length is an expression (e.g. `ne_vec![(); { 0 }]`), the check is performed at runtime
+/// to allow the length to be dynamic.
+///
 /// # Examples
 /// Proper use.
 /// ```
@@ -266,11 +272,13 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
 /// Improper use.
 /// ```compile_fail
 /// # use non_empty_vec::*;
-/// // the following line should fail to compile.
+/// // the following line(s) should fail to compile.
 /// let _ = ne_vec![];
-///
-/// // the following line should panic at runtime.
 /// let _ = ne_vec![1; 0];
+///
+/// // the following line should panic.
+/// let n = 0;
+/// let _ = ne_vec![1; n];
 /// ```
 #[macro_export]
 macro_rules! ne_vec {
@@ -280,7 +288,15 @@ macro_rules! ne_vec {
     ($($x:expr),+ $(,)?) => {
         unsafe { $crate::NonEmpty::new_unchecked(vec![$($x),+]) }
     };
+    ($elem:expr; 0) => {
+        ::std::compile_error!("`NonEmpty` vector must be non-empty")
+    };
+    ($elem:expr; $n:literal) => {{
+        // $n cannot be zero as this macro is only called if the rule above ($elem:expr; 0) does not match
+        unsafe { $crate::NonEmpty::new_unchecked(vec![$elem; $n]) }
+    }};
     ($elem:expr; $n:expr) => {{
+        // if $n is an expression, we cannot check the length at compile time and do it at runtime
         if $n == 0 {
             ::std::panic!("`NonEmpty` vector must be non-empty");
         }
@@ -355,7 +371,9 @@ mod tests {
     #[test]
     #[should_panic]
     fn initialize_macro_zero_size() {
-        let _ = ne_vec![1; 0];
+        // ne_vec![1; 0] results in a compile error
+        let n = 0;
+        let _ = ne_vec![1; n];
     }
 
     #[cfg(feature = "serde")]
