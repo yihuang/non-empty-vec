@@ -1,3 +1,7 @@
+## v0.2.3
+
+- [#12](https://github.com/yihuang/non-empty-vec/pull/12) Add `ne_vec![element; n]` macro.
+
 ## v0.2.2
 
 - [#11](https://github.com/yihuang/non-empty-vec/pull/11) Add `truncate` method

@@ -1,8 +1,8 @@
 use std::convert::TryFrom;
 use std::num::NonZeroUsize;
 use std::ops;
+use std::slice::{Iter, IterMut, SliceIndex};
 use std::vec::IntoIter;
-use std::slice::{SliceIndex, Iter, IterMut};
 
 #[cfg(feature = "serde")]
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
@@ -248,6 +248,12 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
 }
 
 /// Constructs a [`NonEmpty`] vector, similar to std's `vec` macro.
+///
+/// This macro will generally try to check the validity of the length at compile time if it can.
+///
+/// If the length is an expression (e.g. `ne_vec![(); { 0 }]`), the check is performed at runtime
+/// to allow the length to be dynamic.
+///
 /// # Examples
 /// Proper use.
 /// ```
@@ -257,12 +263,32 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
 ///     ne_vec![1, 2, 3],
 ///     NonEmpty::try_from(vec![1, 2, 3_i32]).unwrap(),
 /// );
+///
+/// assert_eq!(
+///     ne_vec![1; 3],
+///     NonEmpty::try_from(vec![1, 1, 1]).unwrap(),
+/// );
 /// ```
 /// Improper use.
 /// ```compile_fail
 /// # use non_empty_vec::*;
-/// // the following line should fail to compile.
 /// let _ = ne_vec![];
+/// ```
+///
+/// ```compile_fail
+/// # use non_empty_vec::*;
+/// let _ = ne_vec![1; 0];
+/// ```
+///
+/// ```compile_fail
+/// # use non_empty_vec::*;
+/// let _ = ne_vec![1; 0usize];
+/// ```
+///
+/// ```should_panic
+/// # use non_empty_vec::*;
+/// let n = 0;
+/// let _ = ne_vec![1; n];
 /// ```
 #[macro_export]
 macro_rules! ne_vec {
@@ -272,6 +298,22 @@ macro_rules! ne_vec {
     ($($x:expr),+ $(,)?) => {
         unsafe { $crate::NonEmpty::new_unchecked(vec![$($x),+]) }
     };
+    ($elem:expr; 0) => {
+        // if 0 is passed to the macro we can generate a good compile error
+        ne_vec![]
+    };
+    ($elem:expr; $n:literal) => {{
+        // extra guard to reject compilation if $n ends up being 0 in some other way (e.g. ne_vec![1; 0usize])
+        const _ASSERT_NON_ZERO: [(); $n - 1] = [(); $n - 1];
+        unsafe { $crate::NonEmpty::new_unchecked(vec![$elem; $n]) }
+    }};
+    ($elem:expr; $n:expr) => {{
+        // if $n is an expression, we cannot check the length at compile time and do it at runtime
+        if $n == 0 {
+            ::std::panic!("`NonEmpty` vector must be non-empty");
+        }
+        unsafe { $crate::NonEmpty::new_unchecked(vec![$elem; $n]) }
+    }};
 }
 
 #[cfg(test)]
@@ -330,6 +372,20 @@ mod tests {
         for (a, b) in vec![2, 3, 4].into_iter().zip(list) {
             assert_eq!(a, b);
         }
+    }
+
+    #[test]
+    fn initialize_macro() {
+        assert_eq!(ne_vec![1; 3].as_slice(), &[1, 1, 1]);
+        assert_eq!(ne_vec!["string"; 5].as_slice(), &["string"; 5]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn initialize_macro_zero_size() {
+        // ne_vec![1; 0] results in a compile error
+        let n = 0;
+        let _ = ne_vec![1; n];
     }
 
     #[cfg(feature = "serde")]
