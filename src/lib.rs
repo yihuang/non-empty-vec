@@ -272,11 +272,21 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
 /// Improper use.
 /// ```compile_fail
 /// # use non_empty_vec::*;
-/// // the following line(s) should fail to compile.
 /// let _ = ne_vec![];
-/// let _ = ne_vec![1; 0];
+/// ```
 ///
-/// // the following line should panic.
+/// ```compile_fail
+/// # use non_empty_vec::*;
+/// let _ = ne_vec![1; 0];
+/// ```
+///
+/// ```compile_fail
+/// # use non_empty_vec::*;
+/// let _ = ne_vec![1; 0usize];
+/// ```
+///
+/// ```should_panic
+/// # use non_empty_vec::*;
 /// let n = 0;
 /// let _ = ne_vec![1; n];
 /// ```
