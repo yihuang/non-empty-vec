@@ -152,6 +152,13 @@ impl<T> From<NonEmpty<T>> for Vec<T> {
     }
 }
 
+/// Returns a unit-length vector containing the default element value.
+impl<T: Default> Default for NonEmpty<T> {
+    fn default() -> Self {
+        ne_vec![T::default()]
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct EmptyError;
 
@@ -354,6 +361,12 @@ mod tests {
         let single = NonEmpty::new(15_i32);
         assert_eq!(single.len().get(), 1);
         assert_eq!(single[0], 15);
+    }
+
+    #[test]
+    fn default() {
+        assert_eq!(NonEmpty::<i32>::default(), ne_vec![0]);
+        assert_eq!(NonEmpty::<&str>::default(), ne_vec![""]);
     }
 
     #[test]
