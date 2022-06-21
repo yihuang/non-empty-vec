@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 use std::num::NonZeroUsize;
-use std::ops;
+use std::ops::{self, RangeBounds};
 use std::slice::{Iter, IterMut, SliceIndex};
 use std::vec::IntoIter;
 
@@ -236,6 +236,64 @@ impl<'a, T> IntoIterator for &'a mut NonEmpty<T> {
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter_mut()
+    }
+}
+
+impl<T> NonEmpty<T> {
+    /// Removes the specified range from the vector in bulk, returning the removed items as an iterator.
+    /// # Panics
+    /// If the range specified would remove all elements from the vector. There must be at least 1 element left over.
+    /// # Examples
+    /// Removing all but the first element.
+    /// ```
+    /// # use non_empty_vec::{NonEmpty, ne_vec};
+    /// let mut v = ne_vec!(0, 1, 2, 3, 4, 5);
+    /// let removed: Vec<_> = v.drain(1..).collect();
+    /// assert_eq!(removed, vec![1, 2, 3, 4, 5]);
+    /// assert_eq!(v, ne_vec![0]);
+    /// ```
+    ///
+    /// Removing all but the last element.
+    /// ```
+    /// # use non_empty_vec::{NonEmpty, ne_vec};
+    /// let mut v = ne_vec!(0, 1, 2, 3, 4, 5);
+    /// let removed: Vec<_> = v.drain(..v.len().get()-1).collect();
+    /// assert_eq!(removed, vec![0, 1, 2, 3, 4]);
+    /// assert_eq!(v, ne_vec![5]);
+    /// ```
+    /// Removing all elements (these panic).
+    /// ```should_panic
+    /// # use non_empty_vec::ne_vec;
+    /// # let mut v = ne_vec!(0, 1, 2, 3, 4, 5);
+    /// v.drain(..);
+    /// ```
+    /// ```should_panic
+    /// # use non_empty_vec::ne_vec;
+    /// # let mut v = ne_vec!(0, 1, 2, 3, 4, 5);
+    /// v.drain(0..v.len().get());
+    /// ```
+    #[track_caller]
+    pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> std::vec::Drain<T> {
+        // whether or not there is space leftover in the start of the vector.
+        let leftover_start = match range.start_bound() {
+            core::ops::Bound::Included(&start) => start > 0,
+            core::ops::Bound::Excluded(_) => true,
+            core::ops::Bound::Unbounded => false,
+        };
+        if !leftover_start {
+            // whether or not there is space leftover in the end of the vector.
+            let leftover_end = match range.end_bound() {
+                core::ops::Bound::Excluded(&end) => end < self.len().get(),
+                core::ops::Bound::Included(&end) => end < self.len().get() - 1,
+                core::ops::Bound::Unbounded => false,
+            };
+            if !leftover_end {
+                panic!(
+                    "range specified for `NonEmpty::drain` must leave at least one element left"
+                );
+            }
+        }
+        self.0.drain(range)
     }
 }
 
