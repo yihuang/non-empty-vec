@@ -350,7 +350,11 @@ where
 {
     vec: &'a mut NonEmpty<T>,
     f: F,
-    i: usize,
+
+    // Always `0 <= left <= right <= vec.len()`, usually `left < right`.
+    // When `left == right`, the iterator is complete.
+    left: usize,
+    right: usize,
 }
 impl<'a, T, F> DrainFilter<'a, T, F>
 where
@@ -358,7 +362,14 @@ where
 {
     #[inline]
     pub fn new(vec: &'a mut NonEmpty<T>, f: F) -> Self {
-        Self { vec, f, i: 0 }
+        let left = 0;
+        let right = vec.len().get();
+        Self {
+            vec,
+            f,
+            left,
+            right,
+        }
     }
 }
 
@@ -371,15 +382,17 @@ where
         // Loop until either we find an element or the list is depleted.
         loop {
             // Only try draining this element if there would be more elements leftover.
-            if (self.i > 0 || self.vec.0.len() > 1) && self.i < self.vec.0.len() {
+            let any_yielded = self.left > 0 || self.right < self.vec.0.len();
+            if (any_yielded || self.right - self.left > 1) && self.left < self.right {
                 // If the elment passes the predicate, remove it and yield it.
-                if (self.f)(&mut self.vec[self.i]) {
-                    let item = self.vec.0.remove(self.i);
+                if (self.f)(&mut self.vec[self.left]) {
+                    let item = self.vec.0.remove(self.left);
+                    self.right -= 1;
                     break Some(item);
                 }
                 // If it doesn't pass, leave the element and repeat the loop.
                 else {
-                    self.i += 1;
+                    self.left += 1;
                 }
             }
             // We've reached the point where we only have one element left, so leave it.
@@ -389,10 +402,36 @@ where
         }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        // This iterator will always leave the final element behind,
-        // so the max # of items it will return is `len - 1`.
-        let max = self.vec.len().get() - 1;
+        let max = self.right - self.left;
         (0, Some(max))
+    }
+}
+impl<'a, T, F> DoubleEndedIterator for DrainFilter<'a, T, F>
+where
+    F: FnMut(&mut T) -> bool,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        // Loop until either we find an element or the list is depleted.
+        loop {
+            // Only try draining this element if there would be more elements leftover.
+            let any_yielded = self.right < self.vec.0.len() || self.left > 0;
+            if (any_yielded || self.right - self.left > 1) && self.right > self.left {
+                // If the elment passes the predicate, remove it and yield it.
+                if (self.f)(&mut self.vec[self.right - 1]) {
+                    let item = self.vec.0.remove(self.right - 1);
+                    self.right -= 1;
+                    break Some(item);
+                }
+                // If it doesn't pass, leave the element and repeat the loop.
+                else {
+                    self.right -= 1;
+                }
+            }
+            // We've reached the point where we only have one element left, so leave it.
+            else {
+                break None;
+            }
+        }
     }
 }
 impl<'a, T, F> FusedIterator for DrainFilter<'a, T, F> where F: FnMut(&mut T) -> bool {}
@@ -543,6 +582,62 @@ mod tests {
         for (a, b) in vec![2, 3, 4].into_iter().zip(list) {
             assert_eq!(a, b);
         }
+    }
+
+    #[test]
+    fn drain_filter() {
+        // Filter out odd numbers.
+        let mut v = ne_vec![1, 2, 3, 4, 5, 6];
+        assert!(v.drain_filter(|val| *val % 2 == 1).eq([1, 3, 5]));
+        assert_eq!(v, ne_vec![2, 4, 6]);
+
+        // singleton
+        let mut v = ne_vec![1];
+        for _ in v.drain_filter(|_| unreachable!()) {}
+        assert_eq!(v, ne_vec![1]);
+
+        // leftover
+        let mut v = ne_vec![1, 2, 3];
+        let removed = v.drain_filter(|&mut val| if val < 3 { true } else { unreachable!() });
+        assert!(removed.eq([1, 2]));
+        assert_eq!(v, ne_vec![3]);
+
+        // double-ended, meet in middle
+        let mut v = ne_vec![1, 2, 3, 4, 5, 6];
+        let mut rem = v.drain_filter(|val| *val % 2 == 1);
+        assert_eq!(rem.next(), Some(1));
+        assert_eq!(rem.next_back(), Some(5));
+        assert_eq!(rem.next_back(), Some(3));
+        assert_eq!(rem.next(), None);
+        assert_eq!(rem.next_back(), None);
+
+        // rev
+        let mut v = ne_vec![1, 2, 3, 4, 5, 6];
+        let rem = v.drain_filter(|val| *val % 2 == 0).rev();
+        assert!(rem.eq([6, 4, 2]));
+        assert_eq!(v, ne_vec![1, 3, 5]);
+
+        // singleton-back
+        let mut v = ne_vec![1];
+        for _ in v.drain_filter(|_| unreachable!()) {}
+        assert_eq!(v, ne_vec![1]);
+
+        // leftover-back
+        let mut v = ne_vec![1, 2, 3];
+        let removed = v
+            .drain_filter(|&mut val| if val > 1 { true } else { unreachable!() })
+            .rev();
+        assert!(removed.eq([3, 2]));
+        assert_eq!(v, ne_vec![1]);
+
+        // meet in middle, unreachable
+        let mut v = ne_vec![1, 2, 3];
+        let mut rem = v.drain_filter(|&mut val| if val == 2 { unreachable!() } else { true });
+        assert_eq!(rem.next_back(), Some(3));
+        assert_eq!(rem.next(), Some(1));
+        assert_eq!(rem.next_back(), None);
+        assert_eq!(rem.next(), None);
+        assert_eq!(v, ne_vec![2]);
     }
 
     #[test]
