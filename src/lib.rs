@@ -1,4 +1,5 @@
 use std::convert::TryFrom;
+use std::iter::FusedIterator;
 use std::num::NonZeroUsize;
 use std::ops::{self, RangeBounds};
 use std::slice::{Iter, IterMut, SliceIndex};
@@ -295,7 +296,106 @@ impl<T> NonEmpty<T> {
         }
         self.0.drain(range)
     }
+
+    /// Calls a predicate with every element of this vector, removing each element for which the predicate returns `true`.
+    /// All removed elements are yielded from the returned iterator.
+    /// # Examples
+    /// Normal use.
+    /// ```
+    /// // Filter out odd entries
+    /// # use non_empty_vec::ne_vec;
+    /// let mut v = ne_vec![1,2,3,4,5,6];
+    /// assert!(v.drain_filter(|i| *i % 2 == 1).eq([1, 3, 5]));
+    /// assert_eq!(v, ne_vec![2, 4, 6]);
+    /// ```
+    /// At least one element is always left behind.
+    /// ```
+    /// // When there's only one element left, the predicate never even gets called on it.
+    /// # use non_empty_vec::ne_vec;
+    /// let mut v = ne_vec![1];
+    /// v.drain_filter(|_| unreachable!());
+    /// assert_eq!(v, ne_vec![1]);
+    ///
+    /// // This also applies if all elements before the final get removed.
+    /// let mut v = ne_vec![1, 2, 3, 4, 5];
+    /// let removed = v.drain_filter(|&mut i| if i < 5 {
+    ///     true
+    /// } else {
+    ///     unreachable!()
+    /// });
+    /// assert!(removed.eq(1..=4));
+    /// assert_eq!(v, ne_vec![5]);
+    /// ```
+    /// Lazy execution.
+    /// ```
+    /// // Nothing gets removed until the iterator is consumed
+    /// # use non_empty_vec::ne_vec;
+    /// let mut v = ne_vec![1,2,3,4];
+    /// v.drain_filter(|_| true);
+    /// assert_eq!(v, ne_vec![1,2,3,4]);
+    /// ```
+    #[inline]
+    pub fn drain_filter<F>(&mut self, f: F) -> DrainFilter<T, F>
+    where
+        F: FnMut(&mut T) -> bool,
+    {
+        DrainFilter::new(self, f)
+    }
 }
+
+#[must_use = "iterators are lazy and do nothing unless consumed"]
+pub struct DrainFilter<'a, T, F>
+where
+    F: FnMut(&mut T) -> bool,
+{
+    vec: &'a mut NonEmpty<T>,
+    f: F,
+    i: usize,
+}
+impl<'a, T, F> DrainFilter<'a, T, F>
+where
+    F: FnMut(&mut T) -> bool,
+{
+    #[inline]
+    pub fn new(vec: &'a mut NonEmpty<T>, f: F) -> Self {
+        Self { vec, f, i: 0 }
+    }
+}
+
+impl<'a, T, F> Iterator for DrainFilter<'a, T, F>
+where
+    F: FnMut(&mut T) -> bool,
+{
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        // Loop until either we find an element or the list is depleted.
+        loop {
+            // Only try draining this element if there would be more elements leftover.
+            if (self.i > 0 || self.vec.0.len() > 1) && self.i < self.vec.0.len() {
+                // If the elment passes the predicate, remove it and yield it.
+                if (self.f)(&mut self.vec[self.i]) {
+                    let item = self.vec.0.remove(self.i);
+                    break Some(item);
+                }
+                // If it doesn't pass, leave the element and repeat the loop.
+                else {
+                    self.i += 1;
+                }
+            }
+            // We've reached the point where we only have one element left, so leave it.
+            else {
+                break None;
+            }
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // This iterator will always leave the final element behind,
+        // so the max # of items it will return is `len - 1`.
+        let max = self.vec.len().get() - 1;
+        (0, Some(max))
+    }
+}
+impl<'a, T, F> FusedIterator for DrainFilter<'a, T, F> where F: FnMut(&mut T) -> bool {}
 
 #[cfg(feature = "serde")]
 impl<T: Serialize> Serialize for NonEmpty<T> {
