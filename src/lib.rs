@@ -280,6 +280,14 @@ pub struct NonEmptySlice<T>([T]);
 
 impl<T> NonEmptySlice<T> {
     /// Creates a new `NonEmptySlice` from a primitive slice. Returns [`None`] if the slice is empty.
+    /// # Examples
+    /// ```
+    /// # use non_empty_vec::NonEmptySlice;
+    /// // Non-empty input
+    /// assert!(NonEmptySlice::new(&[1]).is_some());
+    /// // Empty input
+    /// assert!(NonEmptySlice::<()>::new(&[]).is_none());
+    /// ```
     #[inline]
     pub fn new(slice: &[T]) -> Option<&Self> {
         if !slice.is_empty() {
@@ -301,6 +309,23 @@ impl<T> NonEmptySlice<T> {
     /// Creates a new `NonEmptySlice` without checking the length.
     /// # Safety
     /// Ensure that the input slice is not empty.
+    /// # Examples
+    /// For a slice that is known not to be empty.
+    /// ```
+    /// # use non_empty_vec::NonEmptySlice;
+    /// let s = unsafe {
+    ///     // SAFETY: The passed slice is non-empty.
+    ///     NonEmptySlice::unchecked(&[1])
+    /// };
+    /// assert_eq!(s, &[1]);
+    /// ```
+    /// Improper use (instant undefined behavior).
+    /// ```ignore
+    /// # use non_empty_vec::NonEmptySlice;
+    /// let s: &NonEmptySlice<String> = unsafe { NonEmptySlice::unchecked(&[]) };
+    /// // Please don't try this.
+    /// println!("{}", s.first().as_str());
+    /// ```
     #[inline]
     pub const unsafe fn unchecked(slice: &[T]) -> &Self {
         debug_assert!(!slice.is_empty());
