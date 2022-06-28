@@ -7,6 +7,20 @@ use std::vec::IntoIter;
 #[cfg(feature = "serde")]
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 
+/// Call this macro to assert that the current code path is unreachable due to
+/// a non-empty invariant. This avoids a lot of ceremony in the implementation,
+/// since almost all unsafe code in this crate relies on the same invariant.
+macro_rules! unreachable_non_empty {
+    () => {{
+        #[cfg(debug_assertions)]
+        ::std::unreachable!();
+        #[allow(unreachable_code)]
+        unsafe {
+            ::std::hint::unreachable_unchecked()
+        }
+    }};
+}
+
 /// Non empty vector, ensure non empty by construction.
 /// Inherits `Vec`'s methods through `Deref` trait, not implement `DerefMut`.
 /// Overridden these methods:
@@ -32,16 +46,6 @@ impl<T> NonEmpty<T> {
     }
 
     #[inline]
-    pub fn as_slice(&self) -> &[T] {
-        &self.0
-    }
-
-    #[inline]
-    pub fn as_mut_slice(&mut self) -> &mut [T] {
-        &mut self.0
-    }
-
-    #[inline]
     pub fn as_ptr(&self) -> *const T {
         self.0.as_ptr()
     }
@@ -49,62 +53,6 @@ impl<T> NonEmpty<T> {
     #[inline]
     pub fn as_mut_ptr(&mut self) -> *const T {
         self.0.as_mut_ptr()
-    }
-
-    #[inline]
-    pub fn len(&self) -> NonZeroUsize {
-        unsafe { NonZeroUsize::new_unchecked(self.0.len()) }
-    }
-
-    #[inline]
-    pub const fn is_empty(&self) -> bool {
-        false
-    }
-
-    #[inline]
-    pub fn first(&self) -> &T {
-        unsafe { self.0.get_unchecked(0) }
-    }
-
-    #[inline]
-    pub fn first_mut(&mut self) -> &mut T {
-        unsafe { self.0.get_unchecked_mut(0) }
-    }
-
-    #[inline]
-    pub fn last(&self) -> &T {
-        let i = self.len().get() - 1;
-        unsafe { self.0.get_unchecked(i) }
-    }
-
-    #[inline]
-    pub fn last_mut(&mut self) -> &mut T {
-        let i = self.len().get() - 1;
-        unsafe { self.0.get_unchecked_mut(i) }
-    }
-
-    #[inline]
-    pub fn split_first(&self) -> (&T, &[T]) {
-        (&self[0], &self[1..])
-    }
-
-    #[inline]
-    pub fn split_first_mut(&mut self) -> (&mut T, &mut [T]) {
-        let split = self.0.split_at_mut(1);
-        (&mut split.0[0], split.1)
-    }
-
-    #[inline]
-    pub fn split_last(&self) -> (&T, &[T]) {
-        let len = self.len().get();
-        (&self[len - 1], &self[..(len - 1)])
-    }
-
-    #[inline]
-    pub fn split_last_mut(&mut self) -> (&mut T, &mut [T]) {
-        let i = self.len().get() - 1;
-        let split = self.0.split_at_mut(i);
-        (&mut split.1[0], split.0)
     }
 
     #[inline]
@@ -124,11 +72,6 @@ impl<T> NonEmpty<T> {
     #[inline]
     pub fn truncate(&mut self, len: NonZeroUsize) {
         self.0.truncate(len.get())
-    }
-
-    #[inline]
-    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
-        self.0.iter_mut()
     }
 }
 
@@ -159,7 +102,7 @@ impl<T: Default> Default for NonEmpty<T> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct EmptyError;
 
 impl<T> TryFrom<Vec<T>> for NonEmpty<T> {
@@ -174,10 +117,22 @@ impl<T> TryFrom<Vec<T>> for NonEmpty<T> {
 }
 
 impl<T> ops::Deref for NonEmpty<T> {
-    type Target = [T];
-
-    fn deref(&self) -> &[T] {
-        self.0.deref()
+    type Target = NonEmptySlice<T>;
+    fn deref(&self) -> &Self::Target {
+        unsafe {
+            // SAFETY: This type is guaranteed to be non-empty, so we don't
+            // need to check the length when wrapping into a `NonEmptySlice`.
+            NonEmptySlice::unchecked(&self.0)
+        }
+    }
+}
+impl<T> ops::DerefMut for NonEmpty<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe {
+            // SAFETY: This type is guaranteed to be non-empty, so we don't
+            // need to check the length when wrapping into a `NonEmptySlice`.
+            NonEmptySlice::unchecked_mut(&mut self.0)
+        }
     }
 }
 
@@ -227,7 +182,7 @@ impl<'a, T> IntoIterator for &'a NonEmpty<T> {
     type IntoIter = Iter<'a, T>;
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
+        self.iter()
     }
 }
 impl<'a, T> IntoIterator for &'a mut NonEmpty<T> {
@@ -235,7 +190,7 @@ impl<'a, T> IntoIterator for &'a mut NonEmpty<T> {
     type IntoIter = IterMut<'a, T>;
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        self.0.iter_mut()
+        self.iter_mut()
     }
 }
 
@@ -309,6 +264,247 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Self::try_from(<Vec<T>>::deserialize(deserializer)?)
             .map_err(|_| D::Error::custom("empty vector"))
+    }
+}
+
+/// Wrapper for a slice that is guaranteed to have `len > 0`. This allows
+/// many operations to be infallible, such as [`first`](#method.first)
+/// or [`split_last_mut`](#method.split_last_mut).
+///
+/// This invariant may be relied upon in unsafe code.
+///
+/// `NonEmptySlice` dereferences to an `std` slice, so all of the familiar methods are still available.
+#[derive(Eq, Ord, Hash)]
+#[repr(transparent)]
+pub struct NonEmptySlice<T>([T]);
+
+impl<T> NonEmptySlice<T> {
+    /// Creates a new `NonEmptySlice` from a primitive slice. Returns [`None`] if the slice is empty.
+    #[inline]
+    pub fn new(slice: &[T]) -> Option<&Self> {
+        if !slice.is_empty() {
+            unsafe { Some(Self::unchecked(slice)) }
+        } else {
+            None
+        }
+    }
+    /// Creates a new `NonEmptySlice` from a primitive slice. Returns [`None`] if the slice is empty.
+    #[inline]
+    pub fn new_mut(slice: &mut [T]) -> Option<&mut Self> {
+        if !slice.is_empty() {
+            unsafe { Some(Self::unchecked_mut(slice)) }
+        } else {
+            None
+        }
+    }
+
+    /// Creates a new `NonEmptySlice` without checking the length.
+    /// # Safety
+    /// Ensure that the input slice is not empty.
+    #[inline]
+    pub const unsafe fn unchecked(slice: &[T]) -> &Self {
+        debug_assert!(!slice.is_empty());
+        // SAFETY: This type is `repr(transparent)`, so we can safely
+        // cast the references like this.
+        &*(slice as *const _ as *const Self)
+    }
+    /// Creates a new `NonEmptySlice` without checking the length.
+    /// # Safety
+    /// Ensure that the input slice is not empty.
+    #[inline]
+    pub unsafe fn unchecked_mut(slice: &mut [T]) -> &mut Self {
+        debug_assert!(!slice.is_empty());
+        // SAFETY: This type is `repr(transparent)`, so we can safely
+        // cast the references like this.
+        &mut *(slice as *mut _ as *mut Self)
+    }
+
+    /// Converts this `NonEmptySlice` into a primitive slice.
+    #[inline]
+    pub const fn as_slice(&self) -> &[T] {
+        &self.0
+    }
+    /// Converts this `NonEmptySlice` into a primitive slice.
+    #[inline]
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.0
+    }
+
+    /// Returns the length of this slice.
+    #[inline]
+    pub const fn len(&self) -> NonZeroUsize {
+        unsafe { NonZeroUsize::new_unchecked(self.0.len()) }
+    }
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        false
+    }
+
+    /// Returns a raw pointer to this slice's buffer. See [`slice::as_ptr`] for more info.
+    #[inline]
+    pub const fn as_ptr(&self) -> *const T {
+        self.0.as_ptr()
+    }
+    /// Returns a raw pointer to this slice's buffer. See [`slice::as_ptr`] for more info.
+    #[inline]
+    pub fn as_mut_ptr(&mut self) -> *mut T {
+        self.0.as_mut_ptr()
+    }
+
+    #[inline]
+    pub const fn first(&self) -> &T {
+        if let [first, ..] = self.as_slice() {
+            first
+        } else {
+            unreachable_non_empty!()
+        }
+    }
+    #[inline]
+    pub fn first_mut(&mut self) -> &mut T {
+        if let [first, ..] = self.as_mut_slice() {
+            first
+        } else {
+            unreachable_non_empty!()
+        }
+    }
+
+    #[inline]
+    pub const fn last(&self) -> &T {
+        if let [.., last] = self.as_slice() {
+            last
+        } else {
+            unreachable_non_empty!()
+        }
+    }
+    #[inline]
+    pub fn last_mut(&mut self) -> &mut T {
+        if let [.., last] = self.as_mut_slice() {
+            last
+        } else {
+            unreachable_non_empty!()
+        }
+    }
+
+    #[inline]
+    pub const fn split_first(&self) -> (&T, &[T]) {
+        if let [first, rest @ ..] = self.as_slice() {
+            (first, rest)
+        } else {
+            unreachable_non_empty!()
+        }
+    }
+    #[inline]
+    pub fn split_first_mut(&mut self) -> (&mut T, &mut [T]) {
+        if let [first, rest @ ..] = self.as_mut_slice() {
+            (first, rest)
+        } else {
+            unreachable_non_empty!()
+        }
+    }
+
+    #[inline]
+    pub fn split_last(&self) -> (&T, &[T]) {
+        if let [rest @ .., last] = self.as_slice() {
+            (last, rest)
+        } else {
+            unreachable_non_empty!()
+        }
+    }
+    #[inline]
+    pub fn split_last_mut(&mut self) -> (&mut T, &mut [T]) {
+        if let [rest @ .., last] = self.as_mut_slice() {
+            (last, rest)
+        } else {
+            unreachable_non_empty!()
+        }
+    }
+}
+
+impl<'a, T> TryFrom<&'a [T]> for &'a NonEmptySlice<T> {
+    type Error = EmptyError;
+    fn try_from(value: &'a [T]) -> Result<Self, Self::Error> {
+        NonEmptySlice::new(value).ok_or(EmptyError)
+    }
+}
+impl<'a, T> TryFrom<&'a mut [T]> for &'a mut NonEmptySlice<T> {
+    type Error = EmptyError;
+    fn try_from(value: &'a mut [T]) -> Result<Self, Self::Error> {
+        NonEmptySlice::new_mut(value).ok_or(EmptyError)
+    }
+}
+
+impl<T> ops::Deref for NonEmptySlice<T> {
+    type Target = [T];
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+impl<T> ops::DerefMut for NonEmptySlice<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut_slice()
+    }
+}
+
+impl<T> AsRef<[T]> for NonEmptySlice<T> {
+    #[inline]
+    fn as_ref(&self) -> &[T] {
+        self
+    }
+}
+impl<T> AsMut<[T]> for NonEmptySlice<T> {
+    #[inline]
+    fn as_mut(&mut self) -> &mut [T] {
+        self
+    }
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for NonEmptySlice<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", &self.0)
+    }
+}
+
+impl<T: PartialEq, U: ?Sized + AsRef<[T]>> PartialEq<U> for NonEmptySlice<T> {
+    #[inline]
+    fn eq(&self, other: &U) -> bool {
+        &self.0 == other.as_ref()
+    }
+}
+impl<T: PartialEq> PartialEq<NonEmptySlice<T>> for [T] {
+    #[inline]
+    fn eq(&self, other: &NonEmptySlice<T>) -> bool {
+        *self == other.0
+    }
+}
+impl<T: PartialOrd, U: ?Sized + AsRef<[T]>> PartialOrd<U> for NonEmptySlice<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &U) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(other.as_ref())
+    }
+}
+impl<T: PartialOrd> PartialOrd<NonEmptySlice<T>> for [T] {
+    #[inline]
+    fn partial_cmp(&self, other: &NonEmptySlice<T>) -> Option<std::cmp::Ordering> {
+        self.partial_cmp(&other.0)
+    }
+}
+
+impl<'a, T> IntoIterator for &'a NonEmptySlice<T> {
+    type Item = &'a T;
+    type IntoIter = Iter<'a, T>;
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+impl<'a, T> IntoIterator for &'a mut NonEmptySlice<T> {
+    type Item = &'a mut T;
+    type IntoIter = IterMut<'a, T>;
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
     }
 }
 
