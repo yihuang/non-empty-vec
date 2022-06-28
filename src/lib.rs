@@ -360,6 +360,7 @@ impl<T> NonEmptySlice<T> {
     pub const fn len(&self) -> NonZeroUsize {
         unsafe { NonZeroUsize::new_unchecked(self.0.len()) }
     }
+    /// Returns `false`.
     #[inline]
     pub const fn is_empty(&self) -> bool {
         false
@@ -376,6 +377,13 @@ impl<T> NonEmptySlice<T> {
         self.0.as_mut_ptr()
     }
 
+    /// Returns a reference to the first element of this slice.
+    /// # Example
+    /// ```
+    /// # use non_empty_vec::ne_vec;
+    /// let v = ne_vec![1, 2, 3];
+    /// assert_eq!(v.first(), &1);
+    /// ```
     #[inline]
     pub const fn first(&self) -> &T {
         if let [first, ..] = self.as_slice() {
@@ -384,6 +392,14 @@ impl<T> NonEmptySlice<T> {
             unreachable_non_empty!()
         }
     }
+    /// Returns a mutable reference to the first element of this slice.
+    /// # Example
+    /// ```
+    /// # use non_empty_vec::ne_vec;
+    /// let mut v = ne_vec![1, 2, 3];
+    /// *v.first_mut() = 10;
+    /// assert_eq!(v, ne_vec![10, 2, 3]);
+    /// ```
     #[inline]
     pub fn first_mut(&mut self) -> &mut T {
         if let [first, ..] = self.as_mut_slice() {
@@ -393,6 +409,13 @@ impl<T> NonEmptySlice<T> {
         }
     }
 
+    /// Returns a reference to the last element of this slice.
+    /// # Example
+    /// ```
+    /// # use non_empty_vec::ne_vec;
+    /// let mut v = ne_vec![1, 2, 3];
+    /// assert_eq!(v.last(), &3);
+    /// ```
     #[inline]
     pub const fn last(&self) -> &T {
         if let [.., last] = self.as_slice() {
@@ -401,6 +424,14 @@ impl<T> NonEmptySlice<T> {
             unreachable_non_empty!()
         }
     }
+    /// Returns a mutable reference to the last element of this slice.
+    /// # Example
+    /// ```
+    /// # use non_empty_vec::ne_vec;
+    /// let mut v = ne_vec![1, 2, 3];
+    /// *v.last_mut() = 10;
+    /// assert_eq!(v, ne_vec![1, 2, 10]);
+    /// ```
     #[inline]
     pub fn last_mut(&mut self) -> &mut T {
         if let [.., last] = self.as_mut_slice() {
@@ -410,6 +441,12 @@ impl<T> NonEmptySlice<T> {
         }
     }
 
+    /// Splits this slice into
+    /// * A reference to the first element.
+    /// * A slice to the rest of the elements.
+    ///
+    /// This method is not usually very helpful, but it may shorten some expressions.
+    /// It is mainly included for the sake of parity with [`split_first_mut`](#method.split_first_mut).
     #[inline]
     pub const fn split_first(&self) -> (&T, &[T]) {
         if let [first, rest @ ..] = self.as_slice() {
@@ -418,6 +455,23 @@ impl<T> NonEmptySlice<T> {
             unreachable_non_empty!()
         }
     }
+    /// Splits this slice into
+    /// * A mutable reference to the first element.
+    /// * A mutable slice to the rest of the elements.
+    ///
+    /// This method is useful for breaking up a contiguous slice into multiple
+    /// smaller references, which can each be mutated independently without
+    /// tripping off the borrow checker.
+    ///
+    /// # Example
+    /// ```
+    /// # use non_empty_vec::ne_vec;
+    /// let mut v = ne_vec![1, 2, 3, 4];
+    /// let (first, rest) = v.split_first_mut();
+    /// *first *= 2;
+    /// rest[1] += 2;
+    /// assert_eq!(v, ne_vec![2, 2, 5, 4]);
+    /// ```
     #[inline]
     pub fn split_first_mut(&mut self) -> (&mut T, &mut [T]) {
         if let [first, rest @ ..] = self.as_mut_slice() {
@@ -427,6 +481,12 @@ impl<T> NonEmptySlice<T> {
         }
     }
 
+    /// Splits this slice into
+    /// * A reference to the last element.
+    /// * A slice to the rest of the elements.
+    ///
+    /// This method is not usually very helpful, but it may shorten some expressions.
+    /// It is mainly included for the sake of parity with [`split_last_mut`](#method.split_last_mut).
     #[inline]
     pub fn split_last(&self) -> (&T, &[T]) {
         if let [rest @ .., last] = self.as_slice() {
@@ -435,6 +495,13 @@ impl<T> NonEmptySlice<T> {
             unreachable_non_empty!()
         }
     }
+    /// Splits this slice into
+    /// * A mutable reference to the last element.
+    /// * A mutable slice to the rest of the elements.
+    ///
+    /// This method is useful for breaking up a contiguous slice into multiple
+    /// smaller references, which can each be mutated independently without
+    /// tripping off the borrow checker.
     #[inline]
     pub fn split_last_mut(&mut self) -> (&mut T, &mut [T]) {
         if let [rest @ .., last] = self.as_mut_slice() {
