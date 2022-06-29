@@ -318,9 +318,9 @@ impl<T> NonEmptySlice<T> {
     /// ```
     /// # use non_empty_vec::NonEmptySlice;
     /// // Non-empty input
-    /// assert!(NonEmptySlice::new(&[1]).is_some());
+    /// assert!(NonEmptySlice::from_slice(&[1]).is_some());
     /// // Empty input
-    /// assert!(NonEmptySlice::<()>::new(&[]).is_none());
+    /// assert!(NonEmptySlice::<()>::from_slice(&[]).is_none());
     /// ```
     #[inline]
     pub const fn from_slice(slice: &[T]) -> Option<&Self> {
@@ -464,7 +464,7 @@ impl<T> NonEmptySlice<T> {
     /// smaller references, which can each be mutated independently without
     /// tripping off the borrow checker.
     ///
-    /// # Example
+    /// # Examples
     /// ```
     /// # use non_empty_vec::ne_vec;
     /// let mut v = ne_vec![1, 2, 3, 4];
@@ -472,6 +472,15 @@ impl<T> NonEmptySlice<T> {
     /// *first *= 2;
     /// rest[1] += 2;
     /// assert_eq!(v, ne_vec![2, 2, 5, 4]);
+    /// ```
+    ///
+    /// Only one element.
+    /// ```
+    /// # use non_empty_vec::ne_vec;
+    /// let mut v = ne_vec![4];
+    /// let (first, rest) = v.split_first_mut();
+    /// assert_eq!(*first, 4);
+    /// assert_eq!(rest, &[]);
     /// ```
     #[inline]
     pub fn split_first_mut(&mut self) -> (&mut T, &mut [T]) {
