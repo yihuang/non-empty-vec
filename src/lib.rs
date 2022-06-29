@@ -354,6 +354,26 @@ impl<T> NonEmptySlice<T> {
         Box::from_raw(ptr)
     }
 
+    /// Converts a reference into a [non-empty slice](NonEmptySlice) of length `1`.
+    /// # Example
+    /// ```
+    /// # use non_empty_vec::NonEmptySlice;
+    /// let slice = NonEmptySlice::from_ref(&5);
+    /// assert_eq!(slice, &[5]);
+    /// ```
+    #[inline]
+    pub fn from_ref(val: &T) -> &Self {
+        let slice = core::slice::from_ref(val);
+        // SAFETY: `slice::from_ref` returns a slice of length 1, so it's non-empty.
+        unsafe { Self::unchecked(slice) }
+    }
+    /// Converts a mutable reference into a [non-empty slice](NonEmptySlice) of length `1`.
+    #[inline]
+    pub fn from_mut(val: &mut T) -> &mut Self {
+        let slice = core::slice::from_mut(val);
+        unsafe { Self::unchecked_mut(slice) }
+    }
+
     /// Creates a new `NonEmptySlice` from a primitive slice. Returns [`None`] if the slice is empty.
     /// # Examples
     /// ```
