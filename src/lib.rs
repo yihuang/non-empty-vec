@@ -275,33 +275,6 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
 pub struct NonEmptySlice<T>([T]);
 
 impl<T> NonEmptySlice<T> {
-    /// Creates a new `NonEmptySlice` from a primitive slice. Returns [`None`] if the slice is empty.
-    /// # Examples
-    /// ```
-    /// # use non_empty_vec::NonEmptySlice;
-    /// // Non-empty input
-    /// assert!(NonEmptySlice::new(&[1]).is_some());
-    /// // Empty input
-    /// assert!(NonEmptySlice::<()>::new(&[]).is_none());
-    /// ```
-    #[inline]
-    pub fn new(slice: &[T]) -> Option<&Self> {
-        if !slice.is_empty() {
-            unsafe { Some(Self::unchecked(slice)) }
-        } else {
-            None
-        }
-    }
-    /// Creates a new `NonEmptySlice` from a primitive slice. Returns [`None`] if the slice is empty.
-    #[inline]
-    pub fn new_mut(slice: &mut [T]) -> Option<&mut Self> {
-        if !slice.is_empty() {
-            unsafe { Some(Self::unchecked_mut(slice)) }
-        } else {
-            None
-        }
-    }
-
     /// Creates a new `NonEmptySlice` without checking the length.
     /// # Safety
     /// Ensure that the input slice is not empty.
@@ -338,6 +311,33 @@ impl<T> NonEmptySlice<T> {
         // SAFETY: This type is `repr(transparent)`, so we can safely
         // cast the references like this.
         &mut *(slice as *mut _ as *mut Self)
+    }
+
+    /// Creates a new `NonEmptySlice` from a primitive slice. Returns [`None`] if the slice is empty.
+    /// # Examples
+    /// ```
+    /// # use non_empty_vec::NonEmptySlice;
+    /// // Non-empty input
+    /// assert!(NonEmptySlice::new(&[1]).is_some());
+    /// // Empty input
+    /// assert!(NonEmptySlice::<()>::new(&[]).is_none());
+    /// ```
+    #[inline]
+    pub const fn from_slice(slice: &[T]) -> Option<&Self> {
+        if !slice.is_empty() {
+            unsafe { Some(Self::unchecked(slice)) }
+        } else {
+            None
+        }
+    }
+    /// Creates a new `NonEmptySlice` from a primitive slice. Returns [`None`] if the slice is empty.
+    #[inline]
+    pub fn from_mut_slice(slice: &mut [T]) -> Option<&mut Self> {
+        if !slice.is_empty() {
+            unsafe { Some(Self::unchecked_mut(slice)) }
+        } else {
+            None
+        }
     }
 
     /// Converts this `NonEmptySlice` into a primitive slice.
@@ -519,13 +519,13 @@ impl<T> NonEmptySlice<T> {
 impl<'a, T> TryFrom<&'a [T]> for &'a NonEmptySlice<T> {
     type Error = EmptyError;
     fn try_from(value: &'a [T]) -> Result<Self, Self::Error> {
-        NonEmptySlice::new(value).ok_or(EmptyError)
+        NonEmptySlice::from_slice(value).ok_or(EmptyError)
     }
 }
 impl<'a, T> TryFrom<&'a mut [T]> for &'a mut NonEmptySlice<T> {
     type Error = EmptyError;
     fn try_from(value: &'a mut [T]) -> Result<Self, Self::Error> {
-        NonEmptySlice::new_mut(value).ok_or(EmptyError)
+        NonEmptySlice::from_mut_slice(value).ok_or(EmptyError)
     }
 }
 
