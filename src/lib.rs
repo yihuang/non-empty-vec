@@ -69,6 +69,16 @@ impl<T> NonEmpty<T> {
     pub fn truncate(&mut self, len: NonZeroUsize) {
         self.0.truncate(len.get())
     }
+
+    /// Converts the vector into a boxed slice.
+    ///
+    /// Note that this will drop any excess capacity.
+    #[inline]
+    pub fn into_boxed_slice(self) -> Box<NonEmptySlice<T>> {
+        // SAFETY: This instance is non-empty, so we can
+        // safely make a `NonEmptySlice` from it.
+        unsafe { NonEmptySlice::unchecked_boxed(self.0.into_boxed_slice()) }
+    }
 }
 
 impl<T> From<(Vec<T>, T)> for NonEmpty<T> {
@@ -109,6 +119,24 @@ impl<T> TryFrom<Vec<T>> for NonEmpty<T> {
         } else {
             Ok(NonEmpty(xs))
         }
+    }
+}
+
+impl<T> From<Box<NonEmptySlice<T>>> for NonEmpty<T> {
+    #[inline]
+    fn from(slice: Box<NonEmptySlice<T>>) -> Self {
+        let v = Vec::from(slice.into_boxed_slice());
+        // SAFETY: We constructed this vector from a `NonEmptySlice`,
+        // so it's guaranteed to be non-empty.
+        unsafe { Self::new_unchecked(v) }
+    }
+}
+impl<T> TryFrom<Box<[T]>> for NonEmpty<T> {
+    type Error = EmptyError;
+    #[inline]
+    fn try_from(value: Box<[T]>) -> Result<Self, Self::Error> {
+        let v = Vec::from(value);
+        Self::try_from(v)
     }
 }
 
@@ -312,6 +340,19 @@ impl<T> NonEmptySlice<T> {
         // cast the references like this.
         &mut *(slice as *mut _ as *mut Self)
     }
+    /// Creates a boxed `NonEmptySlice` without checking the length.
+    /// # Safety
+    /// Ensure that the input slice is not empty.
+    #[inline]
+    pub unsafe fn unchecked_boxed(slice: Box<[T]>) -> Box<Self> {
+        debug_assert!(!slice.is_empty());
+        // SAFETY: This type is `repr(transparent)`, so we can safely
+        // cast the pointers like this.
+        // `Box` does not necessarily have a guaranteed type layout
+        // so it's safer to use methods to convert to/from raw pointers.
+        let ptr = Box::into_raw(slice) as *mut Self;
+        Box::from_raw(ptr)
+    }
 
     /// Creates a new `NonEmptySlice` from a primitive slice. Returns [`None`] if the slice is empty.
     /// # Examples
@@ -325,6 +366,8 @@ impl<T> NonEmptySlice<T> {
     #[inline]
     pub const fn from_slice(slice: &[T]) -> Option<&Self> {
         if !slice.is_empty() {
+            // SAFETY: We just checked that it's not empty,
+            // so we can safely create a `NonEmptySlice`.
             unsafe { Some(Self::unchecked(slice)) }
         } else {
             None
@@ -334,7 +377,20 @@ impl<T> NonEmptySlice<T> {
     #[inline]
     pub fn from_mut_slice(slice: &mut [T]) -> Option<&mut Self> {
         if !slice.is_empty() {
+            // SAFETY: We just checked that it's not empty,
+            // so we can safely create a `NonEmptySlice`.
             unsafe { Some(Self::unchecked_mut(slice)) }
+        } else {
+            None
+        }
+    }
+    /// Creates a new `NonEmptySlice` from a primitive slice. Returns [`None`] if the slice is empty.
+    #[inline]
+    pub fn from_boxed_slice(slice: Box<[T]>) -> Option<Box<Self>> {
+        if !slice.is_empty() {
+            // SAFETY: We just checked that it's not empty,
+            // so we can safely create a `NonEmptySlice`.
+            unsafe { Some(Self::unchecked_boxed(slice)) }
         } else {
             None
         }
@@ -349,6 +405,14 @@ impl<T> NonEmptySlice<T> {
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         &mut self.0
+    }
+    /// Converts this `NonEmptySlice` into a primitive boxed slice.
+    #[inline]
+    pub fn into_boxed_slice(self: Box<Self>) -> Box<[T]> {
+        // SAFETY: This type is `repr(transparent)`, so we can
+        // safely cast the pointer like this.
+        let ptr = Box::into_raw(self) as *mut [T];
+        unsafe { Box::from_raw(ptr) }
     }
 
     /// Returns the length of this slice.
@@ -535,6 +599,12 @@ impl<'a, T> TryFrom<&'a mut [T]> for &'a mut NonEmptySlice<T> {
     type Error = EmptyError;
     fn try_from(value: &'a mut [T]) -> Result<Self, Self::Error> {
         NonEmptySlice::from_mut_slice(value).ok_or(EmptyError)
+    }
+}
+impl<T> TryFrom<Box<[T]>> for Box<NonEmptySlice<T>> {
+    type Error = EmptyError;
+    fn try_from(value: Box<[T]>) -> Result<Self, Self::Error> {
+        NonEmptySlice::from_boxed_slice(value).ok_or(EmptyError)
     }
 }
 
