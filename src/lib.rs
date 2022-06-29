@@ -7,17 +7,13 @@ use std::vec::IntoIter;
 #[cfg(feature = "serde")]
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 
-/// Call this macro to assert that the current code path is unreachable due to
-/// a non-empty invariant. This avoids a lot of ceremony in the implementation,
-/// since almost all unsafe code in this crate relies on the same invariant.
-macro_rules! unreachable_non_empty {
+/// Calls [`std::hint::unreachable_unchecked`] in release mode, and panics in debug mode.
+macro_rules! unreachable_unchecked {
     () => {{
         #[cfg(debug_assertions)]
         ::std::unreachable!();
         #[allow(unreachable_code)]
-        unsafe {
-            ::std::hint::unreachable_unchecked()
-        }
+        ::std::hint::unreachable_unchecked()
     }};
 }
 
@@ -389,7 +385,8 @@ impl<T> NonEmptySlice<T> {
         if let [first, ..] = self.as_slice() {
             first
         } else {
-            unreachable_non_empty!()
+            // SAFETY: This instance is non-empty, so the above pattern will always match.
+            unsafe { unreachable_unchecked!() }
         }
     }
     /// Returns a mutable reference to the first element of this slice.
@@ -405,7 +402,8 @@ impl<T> NonEmptySlice<T> {
         if let [first, ..] = self.as_mut_slice() {
             first
         } else {
-            unreachable_non_empty!()
+            // SAFETY: This instance is non-empty, so the above pattern will always match.
+            unsafe { unreachable_unchecked!() }
         }
     }
 
@@ -421,7 +419,8 @@ impl<T> NonEmptySlice<T> {
         if let [.., last] = self.as_slice() {
             last
         } else {
-            unreachable_non_empty!()
+            // SAFETY: This instance is non-empty, so the above pattern will always match.
+            unsafe { unreachable_unchecked!() }
         }
     }
     /// Returns a mutable reference to the last element of this slice.
@@ -437,7 +436,8 @@ impl<T> NonEmptySlice<T> {
         if let [.., last] = self.as_mut_slice() {
             last
         } else {
-            unreachable_non_empty!()
+            // SAFETY: This instance is non-empty, so the above pattern will always match.
+            unsafe { unreachable_unchecked!() }
         }
     }
 
@@ -452,7 +452,8 @@ impl<T> NonEmptySlice<T> {
         if let [first, rest @ ..] = self.as_slice() {
             (first, rest)
         } else {
-            unreachable_non_empty!()
+            // SAFETY: This instance is non-empty, so the above pattern will always match.
+            unsafe { unreachable_unchecked!() }
         }
     }
     /// Splits this slice into
@@ -477,7 +478,8 @@ impl<T> NonEmptySlice<T> {
         if let [first, rest @ ..] = self.as_mut_slice() {
             (first, rest)
         } else {
-            unreachable_non_empty!()
+            // SAFETY: This instance is non-empty, so the above pattern will always match.
+            unsafe { unreachable_unchecked!() }
         }
     }
 
@@ -492,7 +494,8 @@ impl<T> NonEmptySlice<T> {
         if let [rest @ .., last] = self.as_slice() {
             (last, rest)
         } else {
-            unreachable_non_empty!()
+            // SAFETY: This instance is non-empty, so the above pattern will always match.
+            unsafe { unreachable_unchecked!() }
         }
     }
     /// Splits this slice into
@@ -507,7 +510,8 @@ impl<T> NonEmptySlice<T> {
         if let [rest @ .., last] = self.as_mut_slice() {
             (last, rest)
         } else {
-            unreachable_non_empty!()
+            // SAFETY: This instance is non-empty, so the above pattern will always match.
+            unsafe { unreachable_unchecked!() }
         }
     }
 }
