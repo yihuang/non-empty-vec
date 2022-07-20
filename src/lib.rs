@@ -1392,6 +1392,7 @@ mod tests {
 
     #[test]
     fn initialize_macro_fake_vec() {
+        #[allow(unused_macros)]
         macro_rules! vec {
             ($($x:tt)*) => {
                 Vec::new()
