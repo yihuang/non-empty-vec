@@ -1,9 +1,23 @@
-use std::convert::TryFrom;
-use std::iter::FusedIterator;
-use std::num::NonZeroUsize;
-use std::ops::{self, RangeBounds};
-use std::slice::{Iter, IterMut, SliceIndex};
-use std::vec::IntoIter;
+//! Non-empty vector, with non-emptiness ensured by construction.
+
+#![cfg_attr(not(any(feature = "std", doc, test)), no_std)]
+
+extern crate alloc;
+
+use alloc::boxed::Box;
+use alloc::collections::TryReserveError;
+use alloc::vec;
+use alloc::vec::{Drain, IntoIter, Vec};
+use core::borrow::{Borrow, BorrowMut};
+use core::convert::TryFrom;
+use core::fmt::{Debug, Display, Formatter};
+use core::iter::{Extend, FusedIterator};
+use core::num::NonZeroUsize;
+use core::ops::{Bound, Deref, DerefMut, Index, IndexMut, RangeBounds};
+use core::slice::{Iter, IterMut, SliceIndex};
+
+#[cfg(feature = "std")]
+use std::io::{IoSlice, Write};
 
 #[cfg(feature = "serde")]
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
@@ -12,34 +26,69 @@ use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 macro_rules! unreachable_unchecked {
     () => {{
         #[cfg(debug_assertions)]
-        ::std::unreachable!();
+        ::core::unreachable!();
         #[allow(unreachable_code)]
-        ::std::hint::unreachable_unchecked()
+        ::core::hint::unreachable_unchecked()
     }};
 }
 
-/// Non empty vector, ensure non empty by construction.
-/// Inherits `Vec`'s methods through `Deref` trait, not implement `DerefMut`.
-/// Overridden these methods:
-/// * `len` returns `NonZeroUsize` and `is_empty` always returns `false`.
-/// * `first(_mut)`, `last(_mut)`, `split_first(_mut)`, `split_last(_mut)` don't return `Option`.
-/// * `pop` returns `None` if there is only one element in it.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Error from trying to convert from an empty [`Vec`].
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+pub struct EmptyError;
+
+impl Display for EmptyError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "vector must be non-empty")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for EmptyError {}
+
+/// Non-empty vector, with non-emptiness ensured by construction.
+///
+/// Inherits slices' methods through the [`Deref`] and [`DerefMut`] traits.
+///
+/// [`Vec`]'s methods are manually overriden. Some important differences:
+/// * [`len`](Self::len) returns [`NonZeroUsize`] and [`is_empty`](Self::is_empty) always returns `false`.
+/// * [`first(_mut)`](Self::first), [`last(_mut)`](Self::last), [`split_first(_mut)`](Self::split_first), [`split_last(_mut)`](Self::split_last) don't return [`Option`].
+/// * [`pop`](Self::pop) and [`remove`](Self::remove) return `None` if there is only one element.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NonEmpty<T>(Vec<T>);
 
 impl<T> NonEmpty<T> {
+    /// Constructs a non-empty vector with a single element.
     #[inline]
     pub fn new(v: T) -> Self {
         Self(vec![v])
     }
 
-    /// Constructs a non-empty vec without checking its size.
+    /// Constructs a non-empty vector with a single element and a specific capacity.
+    #[inline]
+    pub fn with_capacity(v: T, capacity: usize) -> Self {
+        let mut vec = Vec::with_capacity(capacity);
+        vec.push(v);
+        Self(vec)
+    }
+
+    /// Constructs a non-empty vector without checking its size.
     ///
     /// # Safety
-    /// `vec` should not be empty.
+    ///
+    /// The vector should not be empty.
     #[inline]
-    pub unsafe fn new_unchecked(vec: Vec<T>) -> Self {
+    pub const unsafe fn new_unchecked(vec: Vec<T>) -> Self {
         Self(vec)
+    }
+
+    #[inline]
+    pub fn as_slice(&self) -> &[T] {
+        &self.0
+    }
+
+    #[inline]
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.0
     }
 
     #[inline]
@@ -48,8 +97,130 @@ impl<T> NonEmpty<T> {
     }
 
     #[inline]
-    pub fn as_mut_ptr(&mut self) -> *const T {
+    pub fn as_mut_ptr(&mut self) -> *mut T {
         self.0.as_mut_ptr()
+    }
+
+    #[inline]
+    pub fn leak<'a>(self) -> &'a mut [T] {
+        self.0.leak()
+    }
+
+    #[inline]
+    pub fn into_boxed_slice(self) -> Box<[T]> {
+        self.0.into_boxed_slice()
+    }
+
+    #[inline]
+    pub fn len(&self) -> NonZeroUsize {
+        unsafe { NonZeroUsize::new_unchecked(self.0.len()) }
+    }
+
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        false
+    }
+
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.0.capacity()
+    }
+
+    #[inline]
+    pub fn reserve(&mut self, additional: usize) {
+        self.0.reserve(additional)
+    }
+
+    #[inline]
+    pub fn reserve_exact(&mut self, additional: usize) {
+        self.0.reserve_exact(additional)
+    }
+
+    #[inline]
+    pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
+        self.0.try_reserve(additional)
+    }
+
+    #[inline]
+    pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
+        self.0.try_reserve_exact(additional)
+    }
+
+    #[inline]
+    pub fn shrink_to_fit(&mut self) {
+        self.0.shrink_to_fit()
+    }
+
+    #[inline]
+    pub fn shrink_to(&mut self, min_capacity: usize) {
+        self.0.shrink_to(min_capacity)
+    }
+
+    #[inline]
+    pub fn first(&self) -> &T {
+        unsafe { self.0.get_unchecked(0) }
+    }
+
+    #[inline]
+    pub fn first_mut(&mut self) -> &mut T {
+        unsafe { self.0.get_unchecked_mut(0) }
+    }
+
+    #[inline]
+    pub fn last(&self) -> &T {
+        let i = self.len().get() - 1;
+        unsafe { self.0.get_unchecked(i) }
+    }
+
+    #[inline]
+    pub fn last_mut(&mut self) -> &mut T {
+        let i = self.len().get() - 1;
+        unsafe { self.0.get_unchecked_mut(i) }
+    }
+
+    #[inline]
+    pub fn split_first(&self) -> (&T, &[T]) {
+        (&self[0], &self[1..])
+    }
+
+    #[inline]
+    pub fn split_first_mut(&mut self) -> (&mut T, &mut [T]) {
+        let split = self.0.split_at_mut(1);
+        (&mut split.0[0], split.1)
+    }
+
+    #[inline]
+    pub fn split_last(&self) -> (&T, &[T]) {
+        let len = self.len().get();
+        (&self[len - 1], &self[..(len - 1)])
+    }
+
+    #[inline]
+    pub fn split_last_mut(&mut self) -> (&mut T, &mut [T]) {
+        let i = self.len().get() - 1;
+        let split = self.0.split_at_mut(i);
+        (&mut split.1[0], split.0)
+    }
+
+    #[inline]
+    pub fn truncate(&mut self, len: NonZeroUsize) {
+        self.0.truncate(len.get())
+    }
+
+    #[inline]
+    pub fn resize(&mut self, new_len: NonZeroUsize, value: T)
+    where
+        T: Clone,
+    {
+        self.0.resize(new_len.get(), value)
+    }
+
+    #[inline]
+    pub fn resize_with<F>(&mut self, new_len: NonZeroUsize, f: F)
+    where
+        F: FnMut() -> T,
+    {
+        self.0.resize_with(new_len.get(), f)
     }
 
     #[inline]
@@ -67,18 +238,80 @@ impl<T> NonEmpty<T> {
     }
 
     #[inline]
-    pub fn truncate(&mut self, len: NonZeroUsize) {
-        self.0.truncate(len.get())
+    pub fn insert(&mut self, index: usize, element: T) {
+        self.0.insert(index, element)
     }
 
-    /// Converts the vector into a boxed slice.
-    ///
-    /// Note that this will drop any excess capacity.
     #[inline]
-    pub fn into_boxed_slice(self) -> Box<NonEmptySlice<T>> {
-        // SAFETY: This instance is non-empty, so we can
-        // safely make a `NonEmptySlice` from it.
-        unsafe { NonEmptySlice::unchecked_boxed(self.0.into_boxed_slice()) }
+    pub fn remove(&mut self, index: usize) -> Option<T> {
+        if index == 0 && self.0.len() == 1 {
+            None
+        } else {
+            Some(self.0.remove(index))
+        }
+    }
+
+    #[inline]
+    pub fn swap_remove(&mut self, index: usize) -> Option<T> {
+        if index == 0 && self.0.len() == 1 {
+            None
+        } else {
+            Some(self.0.swap_remove(index))
+        }
+    }
+
+    #[inline]
+    pub fn append(&mut self, other: &mut Vec<T>) {
+        self.0.append(other)
+    }
+
+    #[inline]
+    pub fn extend_from_slice(&mut self, other: &[T])
+    where
+        T: Clone,
+    {
+        self.0.extend_from_slice(other)
+    }
+
+    #[inline]
+    pub fn extend_from_within<R>(&mut self, src: R)
+    where
+        T: Clone,
+        R: RangeBounds<usize>,
+    {
+        self.0.extend_from_within(src)
+    }
+
+    #[inline]
+    pub fn dedup(&mut self)
+    where
+        T: PartialEq,
+    {
+        self.0.dedup()
+    }
+
+    #[inline]
+    pub fn dedup_by<F>(&mut self, same_bucket: F)
+    where
+        F: FnMut(&mut T, &mut T) -> bool,
+    {
+        self.0.dedup_by(same_bucket)
+    }
+
+    #[inline]
+    pub fn dedup_by_key<F, K>(&mut self, key: F)
+    where
+        F: FnMut(&mut T) -> K,
+        K: PartialEq,
+    {
+        self.0.dedup_by_key(key)
+    }
+}
+
+impl<T: Debug> Debug for NonEmpty<T> {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -109,11 +342,9 @@ impl<T: Default> Default for NonEmpty<T> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct EmptyError;
-
 impl<T> TryFrom<Vec<T>> for NonEmpty<T> {
     type Error = EmptyError;
+
     fn try_from(xs: Vec<T>) -> Result<Self, Self::Error> {
         if xs.is_empty() {
             Err(EmptyError)
@@ -132,8 +363,10 @@ impl<T> From<Box<NonEmptySlice<T>>> for NonEmpty<T> {
         unsafe { Self::new_unchecked(v) }
     }
 }
+
 impl<T> TryFrom<Box<[T]>> for NonEmpty<T> {
     type Error = EmptyError;
+
     #[inline]
     fn try_from(value: Box<[T]>) -> Result<Self, Self::Error> {
         let v = Vec::from(value);
@@ -141,8 +374,9 @@ impl<T> TryFrom<Box<[T]>> for NonEmpty<T> {
     }
 }
 
-impl<T> ops::Deref for NonEmpty<T> {
+impl<T> Deref for NonEmpty<T> {
     type Target = NonEmptySlice<T>;
+
     fn deref(&self) -> &Self::Target {
         unsafe {
             // SAFETY: This type is guaranteed to be non-empty, so we don't
@@ -151,7 +385,8 @@ impl<T> ops::Deref for NonEmpty<T> {
         }
     }
 }
-impl<T> ops::DerefMut for NonEmpty<T> {
+
+impl<T> DerefMut for NonEmpty<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe {
             // SAFETY: This type is guaranteed to be non-empty, so we don't
@@ -162,60 +397,142 @@ impl<T> ops::DerefMut for NonEmpty<T> {
 }
 
 impl<T> AsRef<[T]> for NonEmpty<T> {
+    #[inline]
     fn as_ref(&self) -> &[T] {
         self
     }
 }
 
 impl<T> AsMut<[T]> for NonEmpty<T> {
+    #[inline]
     fn as_mut(&mut self) -> &mut [T] {
         self.0.as_mut()
     }
 }
 
 impl<T> AsRef<Vec<T>> for NonEmpty<T> {
+    #[inline]
     fn as_ref(&self) -> &Vec<T> {
         &self.0
     }
 }
 
-impl<T, I: SliceIndex<[T]>> ops::Index<I> for NonEmpty<T> {
+impl<T> Borrow<[T]> for NonEmpty<T> {
+    #[inline]
+    fn borrow(&self) -> &[T] {
+        self.0.borrow()
+    }
+}
+
+impl<T> Borrow<Vec<T>> for NonEmpty<T> {
+    #[inline]
+    fn borrow(&self) -> &Vec<T> {
+        &self.0
+    }
+}
+
+impl<T> BorrowMut<[T]> for NonEmpty<T> {
+    #[inline]
+    fn borrow_mut(&mut self) -> &mut [T] {
+        self.0.borrow_mut()
+    }
+}
+
+impl<T, I: SliceIndex<[T]>> Index<I> for NonEmpty<T> {
     type Output = I::Output;
 
     #[inline]
     fn index(&self, index: I) -> &Self::Output {
-        ops::Index::index(self.as_slice(), index)
+        self.0.index(index)
     }
 }
-impl<T, I: SliceIndex<[T]>> ops::IndexMut<I> for NonEmpty<T> {
+
+impl<T, I: SliceIndex<[T]>> IndexMut<I> for NonEmpty<T> {
     #[inline]
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        ops::IndexMut::index_mut(self.as_mut_slice(), index)
+        self.0.index_mut(index)
     }
 }
 
 impl<T> IntoIterator for NonEmpty<T> {
     type Item = T;
     type IntoIter = IntoIter<T>;
+
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
+
 impl<'a, T> IntoIterator for &'a NonEmpty<T> {
     type Item = &'a T;
     type IntoIter = Iter<'a, T>;
+
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
+
 impl<'a, T> IntoIterator for &'a mut NonEmpty<T> {
     type Item = &'a mut T;
     type IntoIter = IterMut<'a, T>;
+
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
+    }
+}
+
+impl<T> Extend<T> for NonEmpty<T> {
+    #[inline]
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        self.0.extend(iter)
+    }
+}
+
+impl<'a, T: Copy + 'a> Extend<&'a T> for NonEmpty<T> {
+    #[inline]
+    fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
+        self.0.extend(iter)
+    }
+}
+
+#[cfg(feature = "std")]
+impl Write for NonEmpty<u8> {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buf)
+    }
+
+    #[inline]
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
+        self.0.write_vectored(bufs)
+    }
+
+    #[inline]
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        self.0.write_all(buf)
+    }
+
+    #[inline]
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<T: Serialize> Serialize for NonEmpty<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.as_slice().serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::try_from(<Vec<T>>::deserialize(deserializer)?)
+            .map_err(|_| D::Error::custom("vector must be non-empty"))
     }
 }
 
@@ -253,19 +570,19 @@ impl<T> NonEmpty<T> {
     /// v.drain(0..v.len().get());
     /// ```
     #[track_caller]
-    pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> std::vec::Drain<T> {
+    pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> Drain<T> {
         // whether or not there is space leftover in the start of the vector.
         let leftover_start = match range.start_bound() {
-            core::ops::Bound::Included(&start) => start > 0,
-            core::ops::Bound::Excluded(_) => true,
-            core::ops::Bound::Unbounded => false,
+            Bound::Included(&start) => start > 0,
+            Bound::Excluded(_) => true,
+            Bound::Unbounded => false,
         };
         if !leftover_start {
             // whether or not there is space leftover in the end of the vector.
             let leftover_end = match range.end_bound() {
-                core::ops::Bound::Excluded(&end) => end < self.len().get(),
-                core::ops::Bound::Included(&end) => end < self.len().get() - 1,
-                core::ops::Bound::Unbounded => false,
+                Bound::Excluded(&end) => end < self.len().get(),
+                Bound::Included(&end) => end < self.len().get() - 1,
+                Bound::Unbounded => false,
             };
             if !leftover_end {
                 panic!(
@@ -335,6 +652,7 @@ where
     left: usize,
     right: usize,
 }
+
 impl<'a, T, F> DrainFilter<'a, T, F>
 where
     F: FnMut(&mut T) -> bool,
@@ -357,6 +675,7 @@ where
     F: FnMut(&mut T) -> bool,
 {
     type Item = T;
+
     fn next(&mut self) -> Option<Self::Item> {
         // Loop until either we find an element or the list is depleted.
         loop {
@@ -380,11 +699,13 @@ where
             }
         }
     }
+
     fn size_hint(&self) -> (usize, Option<usize>) {
         let max = self.right - self.left;
         (0, Some(max))
     }
 }
+
 impl<'a, T, F> DoubleEndedIterator for DrainFilter<'a, T, F>
 where
     F: FnMut(&mut T) -> bool,
@@ -413,22 +734,8 @@ where
         }
     }
 }
+
 impl<'a, T, F> FusedIterator for DrainFilter<'a, T, F> where F: FnMut(&mut T) -> bool {}
-
-#[cfg(feature = "serde")]
-impl<T: Serialize> Serialize for NonEmpty<T> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.as_slice().serialize(serializer)
-    }
-}
-
-#[cfg(feature = "serde")]
-impl<'de, T: Deserialize<'de>> Deserialize<'de> for NonEmpty<T> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::try_from(<Vec<T>>::deserialize(deserializer)?)
-            .map_err(|_| D::Error::custom("empty vector"))
-    }
-}
 
 /// Wrapper for a slice that is guaranteed to have `len > 0`. This allows
 /// many operations to be infallible, such as [`first`](#method.first)
@@ -469,6 +776,7 @@ impl<T> NonEmptySlice<T> {
         // cast the references like this.
         &*(slice as *const _ as *const Self)
     }
+
     /// Creates a new `NonEmptySlice` without checking the length.
     /// # Safety
     /// Ensure that the input slice is not empty.
@@ -479,6 +787,7 @@ impl<T> NonEmptySlice<T> {
         // cast the references like this.
         &mut *(slice as *mut _ as *mut Self)
     }
+
     /// Creates a boxed `NonEmptySlice` without checking the length.
     /// # Safety
     /// Ensure that the input slice is not empty.
@@ -506,6 +815,7 @@ impl<T> NonEmptySlice<T> {
         // SAFETY: `slice::from_ref` returns a slice of length 1, so it's non-empty.
         unsafe { Self::unchecked(slice) }
     }
+
     /// Converts a mutable reference into a [non-empty slice](NonEmptySlice) of length `1`.
     #[inline]
     pub fn from_mut(val: &mut T) -> &mut Self {
@@ -532,6 +842,7 @@ impl<T> NonEmptySlice<T> {
             None
         }
     }
+
     /// Creates a new `NonEmptySlice` from a primitive slice. Returns [`None`] if the slice is empty.
     #[inline]
     pub fn from_mut_slice(slice: &mut [T]) -> Option<&mut Self> {
@@ -543,6 +854,7 @@ impl<T> NonEmptySlice<T> {
             None
         }
     }
+
     /// Creates a new `NonEmptySlice` from a primitive slice. Returns [`None`] if the slice is empty.
     #[inline]
     pub fn from_boxed_slice(slice: Box<[T]>) -> Option<Box<Self>> {
@@ -560,11 +872,13 @@ impl<T> NonEmptySlice<T> {
     pub const fn as_slice(&self) -> &[T] {
         &self.0
     }
+
     /// Converts this `NonEmptySlice` into a primitive slice.
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         &mut self.0
     }
+
     /// Converts this `NonEmptySlice` into a primitive boxed slice.
     #[inline]
     pub fn into_boxed_slice(self: Box<Self>) -> Box<[T]> {
@@ -579,6 +893,7 @@ impl<T> NonEmptySlice<T> {
     pub const fn len(&self) -> NonZeroUsize {
         unsafe { NonZeroUsize::new_unchecked(self.0.len()) }
     }
+
     /// Returns `false`.
     #[inline]
     pub const fn is_empty(&self) -> bool {
@@ -590,6 +905,7 @@ impl<T> NonEmptySlice<T> {
     pub const fn as_ptr(&self) -> *const T {
         self.0.as_ptr()
     }
+
     /// Returns a raw pointer to this slice's buffer. See [`slice::as_ptr`] for more info.
     #[inline]
     pub fn as_mut_ptr(&mut self) -> *mut T {
@@ -612,6 +928,7 @@ impl<T> NonEmptySlice<T> {
             unsafe { unreachable_unchecked!() }
         }
     }
+
     /// Returns a mutable reference to the first element of this slice.
     /// # Example
     /// ```
@@ -646,6 +963,7 @@ impl<T> NonEmptySlice<T> {
             unsafe { unreachable_unchecked!() }
         }
     }
+
     /// Returns a mutable reference to the last element of this slice.
     /// # Example
     /// ```
@@ -679,6 +997,7 @@ impl<T> NonEmptySlice<T> {
             unsafe { unreachable_unchecked!() }
         }
     }
+
     /// Splits this slice into
     /// * A mutable reference to the first element.
     /// * A mutable slice to the rest of the elements.
@@ -730,6 +1049,7 @@ impl<T> NonEmptySlice<T> {
             unsafe { unreachable_unchecked!() }
         }
     }
+
     /// Splits this slice into
     /// * A mutable reference to the last element.
     /// * A mutable slice to the rest of the elements.
@@ -750,31 +1070,37 @@ impl<T> NonEmptySlice<T> {
 
 impl<'a, T> TryFrom<&'a [T]> for &'a NonEmptySlice<T> {
     type Error = EmptyError;
+
     fn try_from(value: &'a [T]) -> Result<Self, Self::Error> {
         NonEmptySlice::from_slice(value).ok_or(EmptyError)
     }
 }
+
 impl<'a, T> TryFrom<&'a mut [T]> for &'a mut NonEmptySlice<T> {
     type Error = EmptyError;
+
     fn try_from(value: &'a mut [T]) -> Result<Self, Self::Error> {
         NonEmptySlice::from_mut_slice(value).ok_or(EmptyError)
     }
 }
+
 impl<T> TryFrom<Box<[T]>> for Box<NonEmptySlice<T>> {
     type Error = EmptyError;
+
     fn try_from(value: Box<[T]>) -> Result<Self, Self::Error> {
         NonEmptySlice::from_boxed_slice(value).ok_or(EmptyError)
     }
 }
 
-impl<T> ops::Deref for NonEmptySlice<T> {
+impl<T> Deref for NonEmptySlice<T> {
     type Target = [T];
     #[inline]
     fn deref(&self) -> &Self::Target {
         self.as_slice()
     }
 }
-impl<T> ops::DerefMut for NonEmptySlice<T> {
+
+impl<T> DerefMut for NonEmptySlice<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut_slice()
@@ -787,6 +1113,7 @@ impl<T> AsRef<[T]> for NonEmptySlice<T> {
         self
     }
 }
+
 impl<T> AsMut<[T]> for NonEmptySlice<T> {
     #[inline]
     fn as_mut(&mut self) -> &mut [T] {
@@ -794,8 +1121,8 @@ impl<T> AsMut<[T]> for NonEmptySlice<T> {
     }
 }
 
-impl<T: std::fmt::Debug> std::fmt::Debug for NonEmptySlice<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl<T: Debug> Debug for NonEmptySlice<T> {
+    fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
         write!(f, "{:?}", &self.0)
     }
 }
@@ -806,21 +1133,24 @@ impl<T: PartialEq, U: ?Sized + AsRef<[T]>> PartialEq<U> for NonEmptySlice<T> {
         &self.0 == other.as_ref()
     }
 }
+
 impl<T: PartialEq> PartialEq<NonEmptySlice<T>> for [T] {
     #[inline]
     fn eq(&self, other: &NonEmptySlice<T>) -> bool {
         *self == other.0
     }
 }
+
 impl<T: PartialOrd, U: ?Sized + AsRef<[T]>> PartialOrd<U> for NonEmptySlice<T> {
     #[inline]
-    fn partial_cmp(&self, other: &U) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &U) -> Option<core::cmp::Ordering> {
         self.0.partial_cmp(other.as_ref())
     }
 }
+
 impl<T: PartialOrd> PartialOrd<NonEmptySlice<T>> for [T] {
     #[inline]
-    fn partial_cmp(&self, other: &NonEmptySlice<T>) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &NonEmptySlice<T>) -> Option<core::cmp::Ordering> {
         self.partial_cmp(&other.0)
     }
 }
@@ -828,21 +1158,28 @@ impl<T: PartialOrd> PartialOrd<NonEmptySlice<T>> for [T] {
 impl<'a, T> IntoIterator for &'a NonEmptySlice<T> {
     type Item = &'a T;
     type IntoIter = Iter<'a, T>;
+
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
+
 impl<'a, T> IntoIterator for &'a mut NonEmptySlice<T> {
     type Item = &'a mut T;
     type IntoIter = IterMut<'a, T>;
+
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
     }
 }
 
-/// Constructs a [`NonEmpty`] vector, similar to std's `vec` macro.
+/// Required to be used in the [`ne_vec`] macro.
+#[doc(hidden)]
+pub use alloc::vec as __vec;
+
+/// Constructs a [`NonEmpty`] vector, similar to `std`'s [`vec`](std::vec!) macro.
 ///
 /// This macro will generally try to check the validity of the length at compile time if it can.
 ///
@@ -850,7 +1187,9 @@ impl<'a, T> IntoIterator for &'a mut NonEmptySlice<T> {
 /// to allow the length to be dynamic.
 ///
 /// # Examples
+///
 /// Proper use.
+///
 /// ```
 /// # use non_empty_vec::*;
 /// # use std::convert::TryFrom;
@@ -864,7 +1203,9 @@ impl<'a, T> IntoIterator for &'a mut NonEmptySlice<T> {
 ///     NonEmpty::try_from(vec![1, 1, 1]).unwrap(),
 /// );
 /// ```
+///
 /// Improper use.
+///
 /// ```compile_fail
 /// # use non_empty_vec::*;
 /// let _ = ne_vec![];
@@ -888,26 +1229,30 @@ impl<'a, T> IntoIterator for &'a mut NonEmptySlice<T> {
 #[macro_export]
 macro_rules! ne_vec {
     () => {
-        ::std::compile_error!("`NonEmpty` vector must be non-empty")
+        ::core::compile_error!("`NonEmpty` vector must be non-empty")
     };
-    ($($x:expr),+ $(,)?) => {
-        unsafe { $crate::NonEmpty::new_unchecked(vec![$($x),+]) }
-    };
+    ($($x:expr),+ $(,)?) => {{
+        let vec = $crate::__vec![$($x),+];
+        unsafe { $crate::NonEmpty::new_unchecked(vec) }
+    }};
     ($elem:expr; 0) => {
         // if 0 is passed to the macro we can generate a good compile error
-        ne_vec![]
+        $crate::ne_vec![]
     };
     ($elem:expr; $n:literal) => {{
         // extra guard to reject compilation if $n ends up being 0 in some other way (e.g. ne_vec![1; 0usize])
         const _ASSERT_NON_ZERO: [(); $n - 1] = [(); $n - 1];
-        unsafe { $crate::NonEmpty::new_unchecked(vec![$elem; $n]) }
+        let vec = $crate::__vec![$elem; $n];
+        unsafe { $crate::NonEmpty::new_unchecked(vec) }
     }};
     ($elem:expr; $n:expr) => {{
         // if $n is an expression, we cannot check the length at compile time and do it at runtime
-        if $n == 0 {
-            ::std::panic!("`NonEmpty` vector must be non-empty");
+        let len = $n;
+        if len == 0 {
+            ::core::panic!("`NonEmpty` vector must be non-empty");
         }
-        unsafe { $crate::NonEmpty::new_unchecked(vec![$elem; $n]) }
+        let vec = $crate::__vec![$elem; len];
+        unsafe { $crate::NonEmpty::new_unchecked(vec) }
     }};
 }
 
@@ -1045,11 +1390,23 @@ mod tests {
         let _ = ne_vec![1; n];
     }
 
+    #[test]
+    fn initialize_macro_fake_vec() {
+        #[allow(unused_macros)]
+        macro_rules! vec {
+            ($($x:tt)*) => {
+                Vec::new()
+            };
+        }
+
+        // ne_vec! should not be affected by a fake vec! macro being in scope.
+        let list: NonEmpty<u32> = ne_vec![1, 2, 3];
+        assert_eq!(list.len().get(), 3);
+    }
+
     #[cfg(feature = "serde")]
     #[test]
     fn serialize() {
-        use serde_json;
-
         let vec: NonEmpty<u32> = (1, vec![]).into();
         assert_eq!(
             serde_json::from_str::<NonEmpty<u32>>(&serde_json::to_string(&vec).unwrap()).unwrap(),

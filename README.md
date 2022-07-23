@@ -1,10 +1,10 @@
-`NonEmpty` vector implementation, ensure non-emptiness by construction.
+`NonEmpty` vector implementation, with non-emptiness ensured by construction.
 
-Inherits `Vec`'s immutable methods through `Deref` trait, not implements `DerefMut`.
+Inherits slices' methods through the `Deref` and `DerefMut` traits.
 
-The differences from `Vec`:
-* `len` returns `NonZeroUsize`, `is_empty` always returns `false`.
+`Vec`'s methods are manually overriden. Some important differences:
+* `len` returns `NonZeroUsize` and `is_empty` always returns `false`.
 * `first(_mut)`, `last(_mut)`, `split_first(_mut)`, `split_last(_mut)` don't return `Option`.
-* `pop` returns `None` if there is only one element in it.
+* `pop` and `remove` return `None` if there is only one element.
 
-More usages please look at the embedded unit testing.
+For example usage, please look at the embedded unit testing.
